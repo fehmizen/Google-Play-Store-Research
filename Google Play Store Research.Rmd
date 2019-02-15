@@ -1,0 +1,241 @@
+---
+title: "Final Paper"
+author: "STOR 320.02 Group 4(Fehmi, Zeyao, Yifan, Nyal)"
+date: "December 6, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(readr)
+library(scales)
+library(dmm)
+library(modelr) 
+library(broom)
+library(xtable)
+options(na.action = na.warn) 
+
+GPS=read_csv("googleplaystore.csv")
+app_1<-GPS
+# Convert Price to number
+app_1$Price<-gsub('[$]','',app_1$Price)
+app_1$Price<-as.numeric(gsub(',','',app_1$Price))
+# Convert Installs to number
+app_1$Installs<-gsub('[+]','',app_1$Installs)
+app_1$Installs<-gsub(',','',app_1$Installs)
+# Convert kilobytes to metabytes in terms of Size
+for(i in 1:nrow(app_1)) {
+   if(grepl("k",app_1$Size[i])) {
+      app_1$Size[i]<-as.numeric(gsub('[k]','',app_1$Size[i]))
+      app_1$Size[i]<-as.numeric(app_1$Size[i])/1024
+   } else {
+      app_1$Size[i]<-gsub('[M]','',app_1$Size[i])
+   }
+}
+app_1$Size<-as.numeric(app_1$Size)
+colnames(app_1)[colnames(app_1)=="Size"]<-"Size_M"
+```
+
+```{r echo=FALSE}
+# Q2: What makes expensive apps special (except their price) and what's price's relationship with app's size and category?
+# We regard apps with price higher than or equal to $5 as expensive apps.
+exp_app<-filter(app_1,Price>=5)
+exp_app<-exp_app[!(exp_app$App=="Life Made WI-Fi Touchscreen Photo Frame"), ] # This app's information is messed up.
+other_app<-filter(app_1,Price<5)
+
+# Distribution of expensive apps in different categories
+plot_distr<-ggplot(exp_app,aes(Price,Category),na.rm=TRUE)+geom_point(size=1)+ggtitle("Distribution of Expensive Apps by Category") 
+most_exp_app<-filter(exp_app,Price>=200)
+# most_exp_app
+normal_exp_app<-filter(exp_app,Price<200)
+# normal_exp_app
+# ggplot(normal_exp_app,aes(Price,Category))+geom_point(size=1)
+count_exp_cat<-normal_exp_app %>% 
+  group_by(Category) %>%
+  summarise(count=length(Category)) %>%
+  arrange(desc(count))
+# count_exp_cat
+
+# Average number of reviews
+normal_exp_app_1<-filter(normal_exp_app,!is.na(Reviews))
+other_app_1<-filter(other_app,!is.na(Reviews))
+ave_rev_exp<-mean(normal_exp_app_1[["Reviews"]],na.rm=TRUE)
+ave_rev_oth<-mean(other_app_1[["Reviews"]],na.rm=TRUE)
+# tibble(ave_rev_exp,ave_rev_oth)
+
+# Average number of installs
+normal_exp_app_2<-filter(normal_exp_app,!is.na(Installs))
+other_app_2<-filter(other_app,!is.na(Installs))
+normal_exp_app_2$Installs<-as.numeric(normal_exp_app_2$Installs)
+other_app_2$Installs<-as.numeric(other_app_2$Installs)
+ave_ins_exp<-mean(normal_exp_app_2[["Installs"]],na.rm=TRUE)
+ave_ins_oth<-mean(other_app_2[["Installs"]],na.rm=TRUE)
+# tibble(ave_ins_exp,ave_ins_oth)
+
+# Average number of size
+normal_exp_app_3<-filter(normal_exp_app,!is.na(Size_M) & Size_M!="Varies with device")
+other_app_3<-filter(other_app,!is.na(Size_M) & Size_M!="Varies with device")
+ave_siz_exp<-mean(normal_exp_app_3[["Size_M"]],na.rm=TRUE)
+ave_siz_oth<-mean(other_app_3[["Size_M"]],na.rm=TRUE)
+# tibble(ave_siz_exp,ave_siz_oth)
+
+# Interactions 
+by_cat<-group_by(GPS,Category,Type)
+count_cat<-by_cat %>%
+  summarize(count=n()) %>%
+    filter(Type %in% c("Free","Paid")) %>%
+      spread(key=Type,value=count)
+count_cat[is.na(count_cat)]<-0
+count_cat[["Total"]]<-count_cat$Free+count_cat$Paid
+count_cat<-arrange(count_cat,desc(count_cat$Paid))
+# count_cat
+paid_app<-filter(app_1,Type=="Paid" & !is.na(Rating)) %>%
+  filter(Category %in% c("FAMILY","MEDICAL","GAME","PERSONALIZATION","TOOLS")) %>%
+    filter(Price<70)
+#ggplot(paid_app,aes(Size_M,Price))+geom_point(aes(color=Category))
+mod1<-suppressWarnings(lm(Price~Size_M+Category,data=paid_app)) 
+mod2<-suppressWarnings(lm(Price~Size_M*Category,data=paid_app))
+mod3<-suppressWarnings(lm(Price~Size_M+Category+Size_M*Category,data=paid_app))
+grid<-paid_app %>%
+  data_grid(Size_M,Category) %>% 
+    gather_predictions(mod1,mod2,mod3) 
+# grid
+plot_model<-ggplot(paid_app,aes(Size_M,Price,color=Category),na.rm=TRUE)+geom_point(na.rm=TRUE)+geom_line(data=grid,aes(y=pred),na.rm=TRUE)+facet_wrap(~model)+ggtitle("Linear Regression Models")
+paid_app<-paid_app %>%  
+  gather_residuals(mod1,mod2,mod3)
+plot_resid<-ggplot(paid_app,aes(Size_M,resid,color=Category),na.rm=TRUE)+geom_point(na.rm=TRUE)+facet_grid(model~Category)+ggtitle("Plot of Residuals")
+#summary(mod1)
+#summary(mod2)
+#summary(mod3)
+```
+
+
+```{r echo=FALSE, include=F}
+
+g1<-app_1
+g2_subset = filter(g1, Price <= 60) #cropped price over 60 (mainly outliers)
+
+g3_subset = filter(g2_subset, Price > 0) #cropped 0 as this question deals with paid apps
+
+g3_subset$Installs = factor(g3_subset$Installs, levels = c("0","1","5","10","50","100","500","1000","5000","10000","50000","100000","500000","1000000","10000000"))
+
+#ggplot(g3_subset, aes(Installs)) + geom_bar() + coord_flip()
+
+
+q1_plot = g3_subset %>%
+  ggplot() + geom_point(aes(x = Installs, y = Price)) + coord_flip()
+#q1_plot
+
+lm_price_installs = lm(Price~Installs, data = g3_subset)
+#summary(lm_price_installs)
+
+app_2<-app_1
+app_2$Installs<-as.numeric(app_1$Installs)
+app_2sub = filter(app_2, Price <= 60)
+app_2sub2 = filter(app_2sub, Price > 0)
+#cor(app_2sub2$Installs,app_2sub2$Price,use = "complete.obs")
+
+lm_price_installs1 = lm(Price~Installs, data = app_2sub2)
+#summary(lm_price_installs1)
+
+#app_2sub2 %>%
+  #ggplot() + geom_point(aes(x = Installs, y = Price)) + coord_flip()
+
+g3 = app_2
+lm_subset = filter(g3, Price <= 60) #cropped price over 60 (mainly outliers)
+lm_subset2 = filter(lm_subset, Price > 0) #cropped 0 as this question deals with paid apps
+
+sub_app = dplyr::select(lm_subset2, Category, Rating, Reviews, Size_M, Installs, Price)
+
+lm_Install2 = lm(Installs ~ Reviews , data = sub_app)
+lm_Install6 = lm(Installs ~ Reviews + Rating + Reviews*Rating , data = sub_app)
+lm_Install7 = lm(Installs ~ Reviews + Price + Reviews*Price , data = sub_app)
+
+```
+
+# INTRODUCTION
+
+\ Our data consists of information from the Google Play Store. After many tests, we've condensed our research into 2 intriguing questions: Do the price and the number of installs have a negative correlation for paid apps (Question 1), and what makes expensive apps special (except their price) and what's the price relationship with the app's size and category (Question 2). Theoretically thinking, we would assume that higher prices would correlate with fewer downloads. This mindset would be clearly visible if we compared all the apps, including free apps. However, we wanted to condense our data and focus on the price fluctuations with just paid apps. 
+
+\ Secondly, we further investigated some of the the more expensive apps. Our definition of 'expensive' ranged from \$5-\$200. We thought that apps below \$5 weren't considered expensive. We also didn't want to consider apps priced more than \$200 either. After examining these super expensive apps, we saw that they didn't add any valuable data. These apps were simply made to 'show off' that the users had money and, therefore, we considered them as junk apps. This way we could hone in on why there are expensive apps and what makes them special.
+
+\ These questions are important in regards to app developers. Looking at some of these correlations could benefit profits for these app developers. Should they make a really amazing app and charge \$40? Or should they make a simpler version and charge \$10? Will apps in certain categories, like games, be successful if they are priced at \$10? Would the developer make more money if they charge \$10 instead of \$5? These are valid questions that could raise profits. All in all, what makes paid apps successful?
+
+
+# DATA
+
+\ We collected our data from Kaggle.com. The uploader of this csv simply states that app information gathered through the Play Store (Android) might be interesting since there are multiple versions from the App Store (Apply Products). The csv contains 13 variables, but we heavily used 7 of them: Category, Size, Installs, Type, Price, Reviews, Rating. The descriptions of these variables are as followed: Category simply categorizes each application into a type, like gaming or financial applications; Size gives us the megabyte storage of each application; Installs tells us the amount of installs per app (rounded to the tens/hundreds/thousands); Type states whether an app is free of paid; Price tells us the price of each application, 0 if it is free; Reviews gives us the amount of reviews received by users per app; Rating tells us the average rating for an application out of possible 5. We didn't believe the application names were necessary to show the results of our questions.
+
+\ Our question on the correlation between number of installs and price heavily uses the installs, type, price, reviews, and rating variables while the expensive apps question uses category, size, installs, type, and price variables. There is a total of 9660 applications that include all the information for each variable. An example of the csv is shown below: 
+
+```{r, echo = FALSE}
+reduced = GPS %>%
+  dplyr::select(Category, Size, Installs, Type, Price, Rating, Reviews)
+head(reduced)
+```
+
+\ To give a visual, here are the 33 categories shown in a sideways histogram showing the amount of applications in each category:
+
+```{r, echo = FALSE}
+reduced %>% 
+  ggplot(aes(x = Category)) + geom_bar() + coord_flip() + ylab("Number of Applications")
+```
+
+
+# RESULTS
+
+\ The first question we investigated is whether price and the number of installs have a negative correlation for paid apps. First we filtered out all the free apps and then took out all apps that have a price greater than $60 as those are outliers. We plotted price against installs and found out that there is no distinct trend to the graph. This signaled that we probably are not going to find any distinct correlation between the two, and unsurprisingly at this point, the correlation was only -0.015. We also ran a regression with the independent variable being installs and dependent variable being price. The results proved insignificant with a p-value at 0.679 and a r-squared of only 0.0002. 
+
+```{r echo=FALSE}
+q1_plot
+```
+
+\ We then quickly realized that Price is predetermined before installs, and maybe we should look at some other variables to explain price. This prompted us to do further research that will be presented later. For now, we will focus on what can explain installs. Running a multi-linear regression for the variables Category, Ratings, Reviews, Size, and Price against Installs, we found that the only significant variable was reviews. A linear model of only reviews could explain 75.25% of the variations in installs, which we thought was pretty impressive: 
+
+```{r echo=FALSE}
+summary(lm_Install2)
+```
+    
+\ We then wondered if any interactions between other variables and the number of reviews would be significant, and we found out that ratings and the number of reviews are significant. Our model (shown below) indicated that more better reviews led to more number of installs vs more bad reviews. This result makes a lot of sense intuitively, and can explain around 77.12% of variations in Installs, better than the original model of just reviews alone. Looking at the model though, we noticed that to have a high number of reviews means that those people have to had installed it first. So maybe initially, reviews are the variables explained by results. However, we do believe that later on in an app's life cycle, the more people who give good reviews to an app, the more likely the next person is going to install the app. 
+
+```{r echo=FALSE}
+summary(lm_Install6)
+```
+
+\ Our team also wondered if an interaction between price and reviews would be significant to installs, and to our surprise, It is our best model to date in terms of adjusted r-squared, and all variables are significant. This model (shown below) explained 92.61% of variations among installs and indicated that for apps with large number of reviews (approx. > 1000) had more installs if they are cheap, and less installs the more expensive they got. However, for apps that have a small number of reviews (approx. < 1000) they had more installs the more expensive they got. For apps with many reviews and a low price, consumers may be encouraged to try it out based on how many people have used it and a low cost at trying it out. For apps with not so many reviews, the result are very intriguing and no intuitive explanation comes to mind. Further research may be done to get a more complete answer. 
+
+```{r echo=FALSE}
+summary(lm_Install7)
+```
+
+\ For the second question that we tried to answer, we first generally studied the distinctive features of paid apps, especially those expensive. Then we paid more attention to the possible factors that may affect the price of apps. We defined expensive apps as those with a price equal to or higher than \$5. We first examined the distribution of expensive apps in different categories by making a graph with ggplot (Graph "Distribution of Expensive Apps by Category"). In this graph, we noticed that, except several apps that cost more than \$200, most apps have an appropriate price less than \$100. Since our group had never expected an app to cost several hundred dollars, we filtered out those unexpectedly expensive apps, which cost no less than $200, to see what was actually happening to them. Surprisingly, these apps have similar names, such as "I am rich", "I am extremely Rich", and "I'm Rich - Trump Edition". It seems these are apps that are designed for people to show that they are rich by buying them. These apps are in the categories of "FINANCE", "LIFESTYLE", and "FAMILY" and they have a considerable number of installs. If these information are not fake, these apps are making incredible amount of money! However, our group believed that these apps were quite different from normal paid apps and were likely to influence our further data analysis. In this case, we removed these apps and proceeded with the rest of expensive apps. By using group_by() function and summarise() functions, we were able to rank the number of expensive apps in each categories. "MEDICAL" category has the most number of expensive apps, almost three times as many as other categories like "FAMILY" and "BOOKS_AND_REFERENCE". We then separately examined the difference between expensive apps and free apps in terms of their average number of reviews, average number of installs, and average size. We noticed that expensive apps actually tended to have smaller number than free apps in these three aspects. Expensive apps' smaller average number of reviews and installs indicated the fact that, in the market of apps, free apps took the dominant position and tended to be more popular than expensive apps. However, the average size of expensive apps was actually below our group's expectation. Our group expected expensive apps to have a larger average size than free apps, because we thought expensive apps were generally better designed and had more people working on them than free apps. Subsequently, our group paid more attention to the investigation of the price of paid apps in our further analysis. 
+    
+```{r echo=FALSE}
+plot_distr
+```
+
+
+
+\ Because, for most apps, their prices are usually set before they are rolled out and ready to be purchased from app store, the number of reviews, the number of installs, and ratings are less likely to be the factors that can affect the price of apps. Given this consideration, we built our linear regression models based on price and the interaction of two predictors, size and category. In our model, we examined the top 5 categories that have the largest number of paid apps, "FAMILY", "MEDICAL", "GAME", "PERSONALIZATION", and "TOOLS". We built multiple regression models based on the three possible relationships between the categorical variable "Category" and the continuous variable "Size_M". In the first model (mod1), we added variables with "+" so that the model could estimate each effect independent of all the others. In the second model (mod2), we tried to fit the interaction between these two predictors by using "*". In the third model (mod3), we combined the first model and the second model to get a full model. Then we visualized the results of these models on one plot using faceting:
+    
+```{r echo=FALSE}
+plot_model
+```
+
+\ In the plot, we noticed that, in the first model, each category has nearly parallel lines. The second model and the third model have pretty similar outputs and only the "MEDICAL" category shows a line with an obviously positive slope. Other categories like "GAME" and "PERSONALIZATION" have slightly negative slopes, while categories of "TOOLS" and "FAMILY" have slightly positive slopes. To better understand these models, we plotted and compared their residuals (shown below). To our surprise, these models have pretty similar residuals and it seems hard to tell which model is the best. Finally, we examined the three models by their p-values using the tidy() function. The first model has p-values of intercept, category of MEDICAL, and category of PERSONALIZATION less than 0.05, which means they are statistically significant. In the second and third model, only the intercept, category of MEDICAL, and the interaction of size and category of MEDICAL have p-values less than 0.05. In this case, we can conclude that the regression model of price and the interaction of size and category is only effective for the category of MEDICAL out of the five categories we chose. For apps in other categories, the interaction between size and category does not explicitly influence the price. For an app in MEDICAL category, the larger its size is, the higher its price will be. This may be because of the fact that larger medical apps tend to be better designed, able to provide better and customized service for users, and able to provide more useful and accurate information, etc. The true reason behind this discovery may require more research on medical apps to be more accurately interpreted.     
+
+```{r echo=FALSE}
+plot_resid
+```
+
+#CONCLUSION
+
+\ Our group's first question is "Do the price and the number of installs have a negative correlation for paid apps?".  By looking at a plot of price vs number of installs and the correlation function built into R, we found out that the short answer is no, price and the number of installs doesn't have a significant correlation. This was a bit surprising as personally we would be hesitant to purchase and install higher priced apps. We then went on to see what variables can actually explain the number of installs, and we found out through linear regression that reviews did the best job. Furthermore, an interaction between the number of reviews and ratings and an interaction between the number of reviews and price did an even better job at explaining the number of installs. We think these two models together, with further improvements, can be useful in the real world in terms of predicting how many more people are expected to purchase this app. This can be extremely helpful for a company in terms of deciding if they should spend more resources to update this app or focus on another app. The improvements that should be made in this model revolve around determining at what point can we conclude that these number of reviews are going to affect future installs, and what point are these reviews just a result of past installs. Further research should also be done to see why apps with less reviews tend to have more installs if the prices are high, according to one of our models. 
+
+\ Our group's second question is "What makes expensive apps special (except their price) and what's price's relationship with app's size and category?". By exploring the dataset and building relative models, we found most expensive apps are in the categories of "MEDICAL", "FAMILY" and "BOOKS_AND_REFERENCE". In addition, with fewer reviews and installs, expensive apps tend to be less popular than free apps. Meanwhile, only paid apps in the category of MEDICAL reveal a relationship between price and the interaction between size and category. This conclusion reveals a general trend of price of MEDICAL apps in the app market, based on which future MEDICAL app developers can more easily set appropriate price for their apps. However, our group believes that the reason behind this discovery may require more research on medical apps to be more accurately interpreted. Besides, the factors that influence the price of apps in other categories may require further research and efforts to discover. For our data analysis, our group was not able to build effective regression models for apps from categories except MEDICAL. In this case, we speculate that there may be other variables that affect the price of apps that are not listed in this dataset. If we can have access to more variables of apps, our models may be more effective and may be applicable to more app categories.  
+
+
+
+
+
