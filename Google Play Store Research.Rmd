@@ -1,6 +1,6 @@
 ---
-title: "Final Paper"
-author: "STOR 320.02 Group 4(Fehmi, Zeyao, Yifan, Nyal)"
+title: "Play Store Research"
+author: "Fehmi Zengince"
 date: "December 6, 2018"
 output: html_document
 ---
